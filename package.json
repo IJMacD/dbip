@@ -1,0 +1,8 @@
+{
+    "dependencies": {
+        "flag-icons": "7.3.2"
+    },
+    "scripts": {
+        "postinstall": "cp -r ./node_modules/flag-icons/flags ./"
+    }
+}
