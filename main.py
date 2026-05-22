@@ -17,6 +17,7 @@ png_cache_dir = tempfile.TemporaryDirectory()
 db_path = "data/ip-to-country.mmdb"
 
 API_KEY = os.getenv("IPLOCATE_API_KEY")
+APP_MODE = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,37 +56,41 @@ async def daily_task():
 
 @asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
-    if not API_KEY:
-        logger.info("IPLOCATE_API_KEY environment variable is not set. Downloads will be disabled.")
+    if APP_MODE == "web":
+        logger.info("Scheduler disabled because mode=web")
+    else:
+        if not API_KEY:
+            logger.info("IPLOCATE_API_KEY environment variable is not set. Downloads will be disabled.")
 
-    # Check if database exists, download if not
-    if not os.path.exists(db_path):
-        if API_KEY:
-            logger.info("IP-to-country database not found. Downloading...")
-            os.makedirs(os.path.dirname(db_path), exist_ok=True)
-            try:
-                download_db(api_key=API_KEY, dest=db_path)
-                logger.info("Database downloaded successfully")
-            except Exception as e:
-                logger.error(f"Failed to download database: {e}")
-                raise
-        else:
-            raise ValueError("Database not found and API key is missing. The application cannot start.")
+        # Check if database exists, download if not
+        if not os.path.exists(db_path):
+            if API_KEY:
+                logger.info("IP-to-country database not found. Downloading...")
+                os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                try:
+                    download_db(api_key=API_KEY, dest=db_path)
+                    logger.info("Database downloaded successfully")
+                except Exception as e:
+                    logger.error(f"Failed to download database: {e}")
+                    raise
+            else:
+                raise ValueError("Database not found and API key is missing. The application cannot start.")
 
-    # Initialize and start the scheduler
-    scheduler.add_job(
-        daily_task,
-        CronTrigger(hour=2, minute=0),  # Runs at 2:00 AM every day
-        id="daily_task",
-        name="Daily Background Task",
-        replace_existing=True
-    )
-    scheduler.start()
-    logger.info("Scheduler started")
+        # Initialize and start the scheduler
+        scheduler.add_job(
+            daily_task,
+            CronTrigger(hour=2, minute=0),  # Runs at 2:00 AM every day
+            id="daily_task",
+            name="Daily Background Task",
+            replace_existing=True
+        )
+        scheduler.start()
+        logger.info("Scheduler started")
     yield
-    # Shutdown: Stop the scheduler
-    scheduler.shutdown()
-    logger.info("Scheduler stopped")
+    if APP_MODE != "web":
+        # Shutdown: Stop the scheduler
+        scheduler.shutdown()
+        logger.info("Scheduler stopped")
 
 app = fastapi.FastAPI(lifespan=lifespan)
 
@@ -130,6 +135,8 @@ if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser(description="IP-to-Country FastAPI Server")
+    parser.add_argument("--mode", choices=["web", "scheduler"], default=None,
+                        help="Run mode: web starts FastAPI only, scheduler updates the DB and exits. Omit for web+scheduler.")
     parser.add_argument("--api-key", default=os.getenv("IPLOCATE_API_KEY"), help="API key for iplocate.io")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to (default: 8000)")
@@ -137,5 +144,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     API_KEY = args.api_key
+    APP_MODE = args.mode
 
-    uvicorn.run(app, host=args.host, port=args.port)
+    if args.mode == "scheduler":
+        if not API_KEY:
+            raise ValueError("API key is required for scheduler mode. Use --api-key or IPLOCATE_API_KEY.")
+        logger.info("Running scheduler mode: updating IP-to-country database")
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        download_db(api_key=API_KEY, dest=db_path)
+        logger.info("Scheduler mode completed")
+    else:
+        uvicorn.run(app, host=args.host, port=args.port)
