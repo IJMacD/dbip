@@ -1,4 +1,9 @@
+import os
+import tempfile
+
+import cairosvg
 import fastapi
+from fastapi.responses import FileResponse, RedirectResponse
 import maxminddb
 
 
@@ -13,35 +18,44 @@ def get_country(ip: str):
 
 app = fastapi.FastAPI()
 
+png_cache_dir = tempfile.TemporaryDirectory()
+
 @app.get("/ip/{ip}.svg")
-def get_flag(ip: str):
+def get_ip_svg(ip: str):
     country_code = get_country(ip)
     if not country_code:
         return fastapi.Response(status_code=404, content="IP address not found in database.")
 
-    # Assuming you have SVG files named like 'us.svg', 'gb.svg', etc. in a 'flags' directory
-    try:
-        with open(f"flags/4x3/{country_code.lower()}.svg", "r") as svg_file:
-            svg_content = svg_file.read()
-            return fastapi.Response(content=svg_content, media_type="image/svg+xml")
-    except FileNotFoundError:
-        return fastapi.Response(status_code=404, content="Flag not found for the country code.")
+    return RedirectResponse(url=f"/images/{country_code.lower()}.svg", headers={"Cache-Control": "public, max-age=86400"})
 
 @app.get("/ip/{ip}.png")
-def get_flag_png(ip: str):
+def get_ip_png(ip: str):
     country_code = get_country(ip)
     if not country_code:
         return fastapi.Response(status_code=404, content="IP address not found in database.")
 
-    try:
-        with open(f"flags/4x3/{country_code.lower()}.svg", "r") as svg_file:
-            svg_content = svg_file.read()
-            # Convert to png using cairosvg
-            import cairosvg
-            png_content = cairosvg.svg2png(bytestring=svg_content.encode('utf-8'))
-            return fastapi.Response(content=png_content, media_type="image/png")
-    except FileNotFoundError:
-        return fastapi.Response(status_code=404, content="Flag not found for the country code.")
+    return RedirectResponse(url=f"/images/{country_code.lower()}.png", headers={"Cache-Control": "public, max-age=86400"})
+
+@app.get("/images/{country_code}.svg")
+def get_flag_svg(country_code: str):
+    return FileResponse(f"flags/4x3/{country_code.lower()}.svg", media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=31536000"})
+
+@app.get("/images/{country_code}.png")
+def get_flag_png(country_code: str):
+    png_path = os.path.join(png_cache_dir.name, f"{country_code.lower()}.png")
+
+    if not os.path.exists(png_path):
+        try:
+            with open(f"flags/4x3/{country_code.lower()}.svg", "r") as svg_file:
+                svg_content = svg_file.read()
+                png_content = cairosvg.svg2png(bytestring=svg_content.encode('utf-8'))
+            with open(png_path, "wb") as png_file:
+                png_file.write(png_content)
+        except FileNotFoundError:
+            return fastapi.Response(status_code=404, content="Flag not found for the country code.")
+
+    return FileResponse(png_path, media_type="image/png", headers={"Cache-Control": "public, max-age=31536000"})
+
 
 if __name__ == "__main__":
     import uvicorn
