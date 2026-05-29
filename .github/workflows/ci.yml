@@ -50,18 +50,24 @@ jobs:
 
       - name: Smoke test container
         run: |
-          docker run --rm -d --name smoke -e DISABLE_DB_CHECK=1 -p 8000:8000 dbip:ci
+          docker run -d --name smoke -e DISABLE_DB_CHECK=1 -p 8000:8000 dbip:ci
+          echo "--- Container logs after launch ---"
+          sleep 2
+          docker logs smoke 2>&1 || true
+          echo "--- End launch logs ---"
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/healthz | grep -q status; then
               echo "Health check passed"
               docker stop smoke
+              docker rm smoke
               exit 0
             fi
             sleep 1
           done
           echo "Health check failed"
-          docker logs smoke || true
+          docker logs smoke
           docker stop smoke || true
+          docker rm smoke || true
           exit 1
 
       - name: Move cache
