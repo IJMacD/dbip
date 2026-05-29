@@ -62,4 +62,7 @@ USER appuser
 EXPOSE 8000
 
 # Production-configured Uvicorn startup command
+# NOTE: Single worker only. Multiple uvicorn workers would each start their own
+# APScheduler, causing the daily DB download to run N times. For multi-worker
+# deployments, move the scheduler to a separate process or use a distributed lock.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

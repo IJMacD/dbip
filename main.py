@@ -29,7 +29,10 @@ def get_country(ip: str):
         return data["country_code"] if data else None
 
 def download_db(api_key: str, dest: str):
-    res = requests.get(f"https://www.iplocate.io/download/ip-to-country.mmdb?apikey={api_key}&variant=daily")
+    res = requests.get(
+        f"https://www.iplocate.io/download/ip-to-country.mmdb?apikey=***&variant=daily",
+        timeout=30,
+    )
     with open(dest, "wb") as f:
         f.write(res.content)
 
@@ -55,6 +58,16 @@ async def daily_task():
 
 @asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
+    # Verify libcairo2 / cairosvg works (needed for PNG flag conversion)
+    try:
+        cairosvg.svg2png(bytestring=b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>')
+    except Exception as e:
+        raise RuntimeError(
+            "libcairo2 runtime is required for PNG flag conversion but is not available. "
+            "Inside Docker this is installed automatically; on the host run: "
+            "apt-get install -y libcairo2"
+        ) from e
+
     if not API_KEY:
         logger.info("IPLOCATE_API_KEY environment variable is not set. Downloads will be disabled.")
 
