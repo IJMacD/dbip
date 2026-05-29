@@ -84,8 +84,10 @@ async def lifespan(app: fastapi.FastAPI):
             "https://dev.maxmind.com/geoip/geolite2-free-geolocation-data"
         )
 
-    # Check if database exists, download if not
-    if not os.path.exists(db_path):
+    # In CI: skip DB check if DISABLE_DB_CHECK=1
+    CI_MODE = os.getenv("DISABLE_DB_CHECK") == "1"
+    # Check if database exists, download if not (unless in CI_MODE)
+    if not os.path.exists(db_path) and not CI_MODE:
         if API_KEY:
             logger.info("IP-to-country database not found. Downloading...")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -105,6 +107,8 @@ async def lifespan(app: fastapi.FastAPI):
                 "Database not found and API key is missing. "
                 "Get a key at https://iplocate.io or download from https://dev.maxmind.com/geoip/geolite2-free-geolocation-data"
             )
+    elif not os.path.exists(db_path) and CI_MODE:
+        logger.warning("[CI] Skipping DB existence check. DISABLE_DB_CHECK=1.")
 
     # Initialize and start the scheduler
     scheduler.add_job(
