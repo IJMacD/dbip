@@ -69,16 +69,14 @@ async def lifespan(app: fastapi.FastAPI):
     CI_MODE = os.getenv("DISABLE_DB_CHECK") == "1"
 
     # Verify libcairo2 / cairosvg works (needed for PNG flag conversion)
-    # Skip in CI mode where we just need the container to start.
-    if not CI_MODE:
-        try:
-            cairosvg.svg2png(bytestring=b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>')
-        except Exception as e:
-            raise RuntimeError(
-                "libcairo2 runtime is required for PNG flag conversion but is not available. "
-                "Inside Docker this is installed automatically; on the host run: "
-                "apt-get install -y libcairo2"
-            ) from e
+    try:
+        cairosvg.svg2png(bytestring=b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>')
+    except Exception as e:
+        raise RuntimeError(
+            "libcairo2 runtime is required for PNG flag conversion but is not available. "
+            "Inside Docker this is installed automatically; on the host run: "
+            "apt-get install -y libcairo2"
+        ) from e
 
     if not API_KEY:
         logger.warning(
