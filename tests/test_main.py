@@ -134,6 +134,13 @@ def client(tmp_flags_dir):
             return fastapi.Response(status_code=404)
         return RedirectResponse(url=f"/images/{country_code.lower()}.png")
 
+    @app.get("/ip/{ip}.json")
+    def get_ip_json(ip: str):
+        country_code = app_module.get_country(ip)
+        if not country_code:
+            return fastapi.Response(status_code=404, content="IP address not found in database.")
+        return {"ip": ip, "country_code": country_code.upper()}
+
     @app.get("/images/{country_code}.svg")
     def get_flag_svg(country_code: str):
         path = tmp_flags_dir / f"{country_code.lower()}.svg"
@@ -177,6 +184,27 @@ class TestIPFlagEndpoint:
         resp = client.get("/ip/8.8.8.8.png", follow_redirects=False)
         assert resp.status_code == 307
         assert resp.headers["location"] == "/images/us.png"
+
+
+class TestIPJsonEndpoint:
+    def test_unknown_ip_returns_404(self, client, _mock_maxminddb):
+        _mock_maxminddb.get.return_value = None
+        resp = client.get("/ip/0.0.0.0.json")
+        assert resp.status_code == 404
+
+    def test_known_ip_returns_json(self, client, _mock_maxminddb):
+        _mock_maxminddb.get.return_value = {"country_code": "US"}
+        resp = client.get("/ip/8.8.8.8.json")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/json"
+        body = resp.json()
+        assert body["ip"] == "8.8.8.8"
+        assert body["country_code"] == "US"
+
+    def test_country_code_is_uppercase(self, client, _mock_maxminddb):
+        _mock_maxminddb.get.return_value = {"country_code": "gb"}
+        resp = client.get("/ip/1.2.3.4.json")
+        assert resp.json()["country_code"] == "GB"
 
 
 class TestFlagImageEndpoint:

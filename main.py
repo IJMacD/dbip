@@ -118,6 +118,14 @@ def get_ip_png(ip: str):
 
     return RedirectResponse(url=f"/images/{country_code.lower()}.png", headers={"Cache-Control": "public, max-age=86400"})
 
+@app.get("/ip/{ip}.json")
+def get_ip_json(ip: str):
+    country_code = get_country(ip)
+    if not country_code:
+        return fastapi.Response(status_code=404, content="IP address not found in database.")
+
+    return {"ip": ip, "country_code": country_code.upper()}
+
 @app.get("/images/{country_code}.svg")
 def get_flag_svg(country_code: str):
     return FileResponse(f"flags/4x3/{country_code.lower()}.svg", media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=31536000"})

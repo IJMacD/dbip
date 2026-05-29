@@ -16,6 +16,7 @@ PNG flags are generated on-the-fly from SVGs using Cairo and cached in a temp di
 |---|---|
 | `GET /ip/{ip}.svg` | Looks up the IP and redirects to the country's flag SVG |
 | `GET /ip/{ip}.png` | Looks up the IP and redirects to the country's flag PNG |
+| `GET /ip/{ip}.json` | Looks up the IP and returns `{"ip": "...", "country_code": "XX"}` |
 | `GET /images/{country_code}.svg` | Serves a flag SVG by ISO country code (e.g. `us`) |
 | `GET /images/{country_code}.png` | Serves a flag PNG by ISO country code |
 
