@@ -120,8 +120,19 @@ def client(tmp_flags_dir):
     png_cache = tempfile.TemporaryDirectory()
     app = fastapi.FastAPI(lifespan=_no_op_lifespan)
 
+    @app.get("/healthz")
+    def healthz():
+        try:
+            db_ok = os.path.exists(app_module.db_path)
+        except Exception:
+            db_ok = False
+        status = "ok" if db_ok else "degraded"
+        return fastapi.responses.JSONResponse({"status": status, "database_loaded": db_ok})
+
     @app.get("/ip/{ip}.svg")
     def get_ip_svg(ip: str):
+        if not app_module._is_valid_ip(ip):
+            return fastapi.Response(status_code=400, content="Invalid IPv4 address.")
         country_code = app_module.get_country(ip)
         if not country_code:
             return fastapi.Response(status_code=404)
@@ -129,6 +140,8 @@ def client(tmp_flags_dir):
 
     @app.get("/ip/{ip}.png")
     def get_ip_png(ip: str):
+        if not app_module._is_valid_ip(ip):
+            return fastapi.Response(status_code=400, content="Invalid IPv4 address.")
         country_code = app_module.get_country(ip)
         if not country_code:
             return fastapi.Response(status_code=404)
@@ -136,6 +149,8 @@ def client(tmp_flags_dir):
 
     @app.get("/ip/{ip}.json")
     def get_ip_json(ip: str):
+        if not app_module._is_valid_ip(ip):
+            return fastapi.Response(status_code=400, content="Invalid IPv4 address.")
         country_code = app_module.get_country(ip)
         if not country_code:
             return fastapi.Response(status_code=404, content="IP address not found in database.")
@@ -165,6 +180,22 @@ def client(tmp_flags_dir):
             yield c
     finally:
         png_cache.cleanup()
+
+
+class TestHealthz:
+    def test_healthy(self, client, _mock_maxminddb):
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["database_loaded"] is True
+
+
+class TestIPValidation:
+    @pytest.mark.parametrize("bad_ip", ["abc", "not.an.ip", "1.2.3", "999.999.999.999", "1.2.3.4.5"])
+    def test_invalid_ip_returns_400(self, client, bad_ip):
+        resp = client.get(f"/ip/{bad_ip}.json")
+        assert resp.status_code == 400
 
 
 class TestIPFlagEndpoint:

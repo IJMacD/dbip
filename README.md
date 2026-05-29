@@ -14,6 +14,7 @@ PNG flags are generated on-the-fly from SVGs using Cairo and cached in a temp di
 
 | Endpoint | Description |
 |---|---|
+| `GET /healthz` | Health check — returns `{"status": "ok", "database_loaded": true}` |
 | `GET /ip/{ip}.svg` | Looks up the IP and redirects to the country's flag SVG |
 | `GET /ip/{ip}.png` | Looks up the IP and redirects to the country's flag PNG |
 | `GET /ip/{ip}.json` | Looks up the IP and returns `{"ip": "...", "country_code": "XX"}` |
@@ -30,20 +31,22 @@ Responses include appropriate `Cache-Control` headers (1 day for IP lookups, 1 y
 - Node.js 18+
 - [iplocate.io](https://iplocate.io) API key (for GeoIP database downloads)
 
-### Environment Variables
-
-| Variable | Description |
-|---|---|
-| `IPLOCATE_API_KEY` | API key for iplocate.io — required for database downloads |
-
 ### Prerequisites
 
-Before starting the server, two data assets must be in place:
+before starting the server. See [Quick Start](#quick-start) to set them up:
 
-- **`flags/4x3/`** — flag SVG icons, populated by `yarn install` (a `postinstall` script copies them from `node_modules/flag-icons/flags`)
-- **`data/ip-to-country.mmdb`** — MaxMind GeoIP database. The app will attempt to download it automatically at startup if you provide an `IPLOCATE_API_KEY`. Without a key, you must place the file manually.
+- **`flags/4x3/`** — flag SVG icons, populated by `yarn install`
+- **`data/ip-to-country.mmdb`** — MaxMind GeoIP database. The app will attempt to download it automatically at startup if you provide an `IPLOCATE_API_KEY`. Without a key, you must place the file manually or get a free key at [iplocate.io](https://iplocate.io).
 
-## Local Development
+## Quick Start
+
+```bash
+make install          # install Python and Node dependencies
+make run              # start the server (set IPLOCATE_API_KEY first)
+make test             # run the test suite
+```
+
+Or step by step:
 
 ```bash
 # 1. Install Python dependencies
@@ -51,7 +54,6 @@ pip install -r requirements.txt
 
 # 2. Install flag icon assets
 yarn install
-# Flags are copied to ./flags/4x3/ via the postinstall script
 
 # 3. Start the server (downloads GeoIP DB automatically if key is set)
 python main.py --api-key YOUR_API_KEY
@@ -59,12 +61,35 @@ python main.py --api-key YOUR_API_KEY
 
 The service binds to `0.0.0.0:8000` by default. Override with `--host` and `--port`.
 
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `IPLOCATE_API_KEY` | API key for iplocate.io — required for automatic database downloads |
+| `PORT` | Uvicorn listen port (default: `8000`) |
+| `APP_ROOT_PATH` | Reverse-proxy root path, e.g. `/api` (default: empty) |
+
 ### Running with Docker
 
 ```bash
-docker build -t dbip .
-docker run -p 8000:8000 -e IPLOCATE_API_KEY=YOUR_API_KEY dbip
+make docker-build
+make docker-run
 ```
+
+Or directly:
+
+```bash
+docker build -t dbip .
+docker run -p 8000:8000 -e IPLOCATE_API_KEY=*** dbip
+```
+
+Environment variables for the container:
+
+| Variable | Description | Default |
+|---|---|---|
+| `IPLOCATE_API_KEY` | API key for iplocate.io | *(required for auto-download)* |
+| `PORT` | Uvicorn listen port | `8000` |
+| `APP_ROOT_PATH` | Reverse-proxy root path | *(empty)* |
 
 The Docker image is a multi-stage build that:
 - Installs flag icon SVGs via Node/Yarn

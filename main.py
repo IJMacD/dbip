@@ -1,17 +1,22 @@
 import os
+import re
 import tempfile
 from datetime import datetime
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 import argparse
 
 import cairosvg
 import fastapi
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 import maxminddb
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import requests
+
+# IPv4 validation regex
+_IP_RE = re.compile(r"^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$")
 
 png_cache_dir = tempfile.TemporaryDirectory()
 db_path = "data/ip-to-country.mmdb"
@@ -22,30 +27,33 @@ API_KEY = os.getenv("IPLOCATE_API_KEY")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_country(ip: str):
-    with maxminddb.open_database('data/ip-to-country.mmdb') as reader:
-        # This returns the raw data dictionary directly matching the IP
+
+def _is_valid_ip(ip: str) -> bool:
+    if not _IP_RE.match(ip):
+        return False
+    return all(0 <= int(part) <= 255 for part in ip.split("."))
+
+
+def get_country(ip: str) -> Optional[str]:
+    with maxminddb.open_database(db_path) as reader:
         data = reader.get(ip)
         return data["country_code"] if data else None
 
-def download_db(api_key: str, dest: str):
+
+def download_db(api_key: str, dest: str) -> None:
     res = requests.get(
-        f"https://www.iplocate.io/download/ip-to-country.mmdb?apikey=***&variant=daily",
+        f"https://www.iplocate.io/download/ip-to-country.mmdb?apikey={api_key}&variant=daily",
         timeout=30,
     )
     with open(dest, "wb") as f:
         f.write(res.content)
 
+
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
 
 
-# Background task - runs once per day (e.g., at 2 AM)
-async def daily_task():
-    """
-    Long-running background task that executes once per day.
-    Customize this function with your actual task logic.
-    """
+async def daily_task() -> None:
     logger.info(f"Daily background task started at {datetime.now()}")
     try:
         if API_KEY:
@@ -69,7 +77,12 @@ async def lifespan(app: fastapi.FastAPI):
         ) from e
 
     if not API_KEY:
-        logger.info("IPLOCATE_API_KEY environment variable is not set. Downloads will be disabled.")
+        logger.warning(
+            "IPLOCATE_API_KEY is not set. Database auto-download is disabled. "
+            "You can still use the service if you manually place data/ip-to-country.mmdb. "
+            "Get a free key at https://iplocate.io or download the DB directly from "
+            "https://dev.maxmind.com/geoip/geolite2-free-geolocation-data"
+        )
 
     # Check if database exists, download if not
     if not os.path.exists(db_path):
@@ -83,7 +96,15 @@ async def lifespan(app: fastapi.FastAPI):
                 logger.error(f"Failed to download database: {e}")
                 raise
         else:
-            raise ValueError("Database not found and API key is missing. The application cannot start.")
+            logger.warning(
+                "Database not found and IPLOCATE_API_KEY is missing. "
+                "The application cannot start. Place data/ip-to-country.mmdb manually "
+                "or set the IPLOCATE_API_KEY environment variable."
+            )
+            raise RuntimeError(
+                "Database not found and API key is missing. "
+                "Get a key at https://iplocate.io or download from https://dev.maxmind.com/geoip/geolite2-free-geolocation-data"
+            )
 
     # Initialize and start the scheduler
     scheduler.add_job(
@@ -100,35 +121,63 @@ async def lifespan(app: fastapi.FastAPI):
     scheduler.shutdown()
     logger.info("Scheduler stopped")
 
-app = fastapi.FastAPI(lifespan=lifespan)
+
+APP_ROOT_PATH = os.getenv("APP_ROOT_PATH", "")
+app = fastapi.FastAPI(lifespan=lifespan, root_path=APP_ROOT_PATH)
+
+
+@app.get("/healthz")
+def healthz():
+    db_ok = os.path.exists(db_path)
+    return JSONResponse(
+        {"status": "ok" if db_ok else "degraded", "database_loaded": db_ok}
+    )
+
+
+def _lookup_ip(ip: str):
+    """Shared IP lookup with validation. Returns (country_code, error_response)."""
+    if not _is_valid_ip(ip):
+        return None, fastapi.Response(
+            status_code=400,
+            content="Invalid IPv4 address.",
+        )
+    country_code = get_country(ip)
+    if not country_code:
+        return None, fastapi.Response(
+            status_code=404,
+            content="IP address not found in database.",
+        )
+    return country_code, None
+
 
 @app.get("/ip/{ip}.svg")
 def get_ip_svg(ip: str):
-    country_code = get_country(ip)
-    if not country_code:
-        return fastapi.Response(status_code=404, content="IP address not found in database.")
-
+    country_code, err = _lookup_ip(ip)
+    if err:
+        return err
     return RedirectResponse(url=f"/images/{country_code.lower()}.svg", headers={"Cache-Control": "public, max-age=86400"})
+
 
 @app.get("/ip/{ip}.png")
 def get_ip_png(ip: str):
-    country_code = get_country(ip)
-    if not country_code:
-        return fastapi.Response(status_code=404, content="IP address not found in database.")
-
+    country_code, err = _lookup_ip(ip)
+    if err:
+        return err
     return RedirectResponse(url=f"/images/{country_code.lower()}.png", headers={"Cache-Control": "public, max-age=86400"})
+
 
 @app.get("/ip/{ip}.json")
 def get_ip_json(ip: str):
-    country_code = get_country(ip)
-    if not country_code:
-        return fastapi.Response(status_code=404, content="IP address not found in database.")
-
+    country_code, err = _lookup_ip(ip)
+    if err:
+        return err
     return {"ip": ip, "country_code": country_code.upper()}
+
 
 @app.get("/images/{country_code}.svg")
 def get_flag_svg(country_code: str):
     return FileResponse(f"flags/4x3/{country_code.lower()}.svg", media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=31536000"})
+
 
 @app.get("/images/{country_code}.png")
 def get_flag_png(country_code: str):

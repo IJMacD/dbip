@@ -58,7 +58,8 @@ COPY --chown=appuser:appuser ./main.py ./app/
 # Tell Docker to run everything below this line as the non-root user
 USER appuser
 
-# Expose the port FastAPI will run on
+ENV PORT=8000
+
 EXPOSE 8000
 
 # Production-configured Uvicorn startup command
