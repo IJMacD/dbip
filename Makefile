@@ -15,7 +15,7 @@ docker-build:
 
 docker-run:
 	docker run --init -p 8000:8000 \
-		-e IPLOCATE_API_KEY=*** \
+		-e IPLOCATE_API_KEY=$${IPLOCATE_API_KEY} \
 		dbip
 
 clean:
