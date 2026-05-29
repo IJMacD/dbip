@@ -50,7 +50,7 @@ jobs:
 
       - name: Smoke test container
         run: |
-          docker run --rm -d --name smoke -e IPLOCATE_API_KEY=TESTKEY -p 8000:8000 dbip:ci
+          docker run --rm -d --name smoke -e IPLOCATE_API_KEY=${{ secrets.IPLOCATE_API_KEY }} -p 8000:8000 dbip:ci
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/healthz | grep -q status; then
               echo "Health check passed"
